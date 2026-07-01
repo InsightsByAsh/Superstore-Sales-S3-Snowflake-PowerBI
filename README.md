@@ -1,5 +1,5 @@
-# 🛒 Superstore Sales Analytics
-### End-to-End Cloud Data Pipeline | AWS S3 → Snowflake → Power BI
+# Superstore Sales Analytics
+### AWS S3 → Snowflake → Power BI
 
 ![Pipeline](https://img.shields.io/badge/Pipeline-AWS%20S3%20→%20Snowflake%20→%20PowerBI-blue?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Complete-brightgreen?style=for-the-badge)
@@ -8,114 +8,103 @@
 
 ---
 
-## 📌 Project Overview
+## What's this about
 
-Built a production-style cloud analytics pipeline using **AWS S3** as raw data storage, **Snowflake** as the cloud data warehouse, and **Power BI** as the visualization layer — connected via **DirectQuery** for live data access.
+So I wanted to build something that actually looks like how data teams work in real companies — not just "load CSV, make chart." 
 
-This project simulates how real enterprise data teams move, store, and analyze data at scale — without a single local database.
+The idea was simple: store raw data in S3, load it into Snowflake, run SQL on it, and connect Power BI directly to the warehouse. No local databases, no shortcuts.
+
+Took some IAM debugging to get there but it works end to end now.
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
-Raw Data (CSV)
-      │
-      ▼
-┌─────────────┐
-│   AWS S3    │  ← Raw storage bucket: snowflake-superstore-data
-│  (Storage)  │
-└──────┬──────┘
-       │  IAM Role + Storage Integration
-       ▼
-┌─────────────┐
-│  Snowflake  │  ← Cloud warehouse: SUPERSTORE_DB
-│ (Warehouse) │     COPY INTO → superstore table (9,627 rows)
-└──────┬──────┘
-       │  SQL Analysis (6 analytical queries)
-       │  DirectQuery Connection
-       ▼
-┌─────────────┐
-│   Power BI  │  ← Executive dashboard: KPIs + 5 visuals
-│ (Dashboard) │
-└─────────────┘
+Raw CSV
+   │
+   ▼
+AWS S3  (snowflake-superstore-data bucket)
+   │
+   │  IAM Role + Storage Integration
+   ▼
+Snowflake  (SUPERSTORE_DB → superstore table, 9627 rows)
+   │
+   │  SQL Analysis + DirectQuery
+   ▼
+Power BI  (Executive dashboard)
 ```
 
 ---
 
-## 📊 Dashboard Preview
+## Dashboard
 
 ![Dashboard](dashboard_preview.png)
 
 ---
 
-## 🔍 Key Insights
+## Numbers that came out
 
-| Metric | Value |
-|--------|-------|
-| 📦 Total Orders | 4,895 |
-| 💰 Total Sales | $2.19M |
-| 📈 Total Profit | $269.93K |
-| 📉 Profit Margin | 12.33% |
+| | |
+|---|---|
+| Total Orders | 4,895 |
+| Total Sales | $2.19M |
+| Total Profit | $269.93K |
+| Profit Margin | 12.33% |
 
-### Sales by Category
+**By category:**
+
 | Category | Sales | Profit |
 |----------|-------|--------|
-| Technology | $751K | $128K ✅ |
-| Furniture | $722K | $19K ⚠️ |
-| Office Supplies | $714K | $121K ✅ |
+| Technology | $751K | $128K |
+| Furniture | $722K | $19K |
+| Office Supplies | $714K | $121K |
 
-### Top 5 States by Sales
-| Rank | State | Sales |
-|------|-------|-------|
-| 1 | California | $426K |
-| 2 | New York | $301K |
-| 3 | Texas | $162K |
-| 4 | Washington | $132K |
-| 5 | Pennsylvania | $113K |
+Furniture pulling in $722K in sales but only $19K profit — that's a problem worth digging into.
 
-### Profitability Analysis
-| 🟢 Most Profitable | Profit | 🔴 Loss Making | Loss |
-|---|---|---|---|
-| Copiers | $55.5K | Tables | -$17.1K |
-| Phones | $39.2K | Bookcases | -$3.4K |
-| Paper | $33.3K | Supplies | -$1.1K |
-| Accessories | $30.8K | Fasteners | +$0.9K |
-| Binders | $30.7K | Machines | +$3.1K |
+**Top states:**
+
+California ($426K) → New York ($301K) → Texas ($162K) → Washington ($132K) → Pennsylvania ($113K)
+
+**Sub-category breakdown:**
+
+Winners: Copiers ($55K), Phones ($39K), Paper ($33K)
+
+Losers: Tables (-$17K), Bookcases (-$3.4K), Supplies (-$1.1K)
+
+Tables are actively losing money. Someone needs to have a conversation about Tables.
 
 ---
 
-## ⚙️ Pipeline Setup — Step by Step
+## How I built it
 
-### Step 1 — Upload Raw Data to S3
-- Created S3 bucket: `snowflake-superstore-data`
-- Uploaded `Sample - Superstore.csv` (2.2 MB)
+### 1. Dumped the CSV into S3
+
+Created a bucket called `snowflake-superstore-data` and uploaded the Superstore dataset (2.2MB).
 
 ![S3 Bucket](s3_bucket.png)
 
-### Step 2 — Configure Snowflake Storage Integration
+### 2. Set up Snowflake to talk to S3
+
+This part took the longest. Had to create a storage integration, get Snowflake's IAM user ARN, set up a trust policy in AWS, create the IAM role, attach S3 read permissions — then come back to Snowflake and create the external stage.
+
 ```sql
--- Create storage integration (Snowflake ↔ AWS IAM)
 CREATE OR REPLACE STORAGE INTEGRATION s3_superstore_integration
   TYPE = EXTERNAL_STAGE
   STORAGE_PROVIDER = 'S3'
   ENABLED = TRUE
   STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::880247664720:role/snowflake-s3-role'
   STORAGE_ALLOWED_LOCATIONS = ('s3://snowflake-superstore-data/');
-
--- Get Snowflake IAM details to configure AWS trust policy
-DESC INTEGRATION s3_superstore_integration;
 ```
 
-### Step 3 — Create External Stage & Load Data
+### 3. Created the stage and loaded data
+
 ```sql
--- Create stage pointing to S3
 CREATE OR REPLACE STAGE superstore_stage
   URL = 's3://snowflake-superstore-data/'
   STORAGE_INTEGRATION = s3_superstore_integration
   FILE_FORMAT = (TYPE = 'CSV' FIELD_OPTIONALLY_ENCLOSED_BY = '"' SKIP_HEADER = 1);
 
--- Load data into Snowflake table
 COPY INTO superstore
 FROM @superstore_stage/
 FILES = ('Sample - Superstore.csv')
@@ -123,64 +112,62 @@ FILE_FORMAT = (TYPE = 'CSV' FIELD_OPTIONALLY_ENCLOSED_BY = '"' SKIP_HEADER = 1)
 ON_ERROR = 'CONTINUE';
 ```
 
-### Step 4 — SQL Analysis in Snowflake
+9,627 rows loaded. 367 skipped due to UTF-8 encoding issues in some product names. Moving on.
+
+### 4. Ran SQL analysis
 
 ![Snowflake Queries](snowflake_queries..png)
 
-See full queries → [`superstore_analysis.sql`](superstore_analysis.sql)
+Six queries covering total metrics, category breakdown, top states, segment split, and profitability. Full file here → [`superstore_analysis.sql`](superstore_analysis.sql)
 
-### Step 5 — Power BI DirectQuery Connection
-- Connected Power BI to Snowflake via **DirectQuery** (live connection — not imported)
-- Built executive dashboard with KPI cards, bar charts, donut chart
-- Created DAX measure for Profit Margin %:
+### 5. Connected Power BI via DirectQuery
+
+Plugged Power BI straight into Snowflake using DirectQuery — so it's hitting the warehouse live, not a static import. Added one DAX measure:
+
 ```dax
 Profit Margin% = ROUND(SUM(SUPERSTORE[PROFIT]) / SUM(SUPERSTORE[SALES]) * 100, 2)
 ```
 
----
-
-## 🛠️ Tech Stack
-
-| Layer | Tool | Purpose |
-|-------|------|---------|
-| Storage | AWS S3 | Raw data lake |
-| IAM | AWS IAM Role | Secure cross-service auth |
-| Warehouse | Snowflake | Cloud SQL + data loading |
-| Analysis | Snowflake SQL | 6 analytical queries |
-| Visualization | Power BI | Executive dashboard |
-| Connection | DirectQuery | Live data — no import |
+Built the dashboard from there.
 
 ---
 
-## 📁 Repository Structure
+## Stack
+
+| | |
+|---|---|
+| AWS S3 | Raw data storage |
+| AWS IAM | Cross-service auth |
+| Snowflake | Cloud warehouse + SQL |
+| Power BI | Dashboard + DirectQuery |
+
+---
+
+## Files
 
 ```
-Superstore-Sales-S3-Snowflake-PowerBI/
-│
-├── superstore_analysis.sql       # All SQL queries (setup + analysis)
-├── Superstore_Snowflake_Dashboard.pbix  # Power BI dashboard file
-├── dashboard_preview.png         # Dashboard screenshot
-├── snowflake_queries..png        # Snowflake worksheet screenshot
-├── s3_bucket.png                 # S3 bucket screenshot
-└── README.md                     # This file
+├── superstore_analysis.sql            # Setup + all 6 analysis queries
+├── Superstore_Snowflake_Dashboard.pbix
+├── dashboard_preview.png
+├── snowflake_queries..png
+├── s3_bucket.png
+└── README.md
 ```
 
 ---
 
-## 💡 What I Learned
+## What I Learned
 
-- Setting up **Snowflake ↔ AWS S3 integration** using IAM roles and trust policies
-- Creating **external stages** in Snowflake for S3-based data loading
-- Using **COPY INTO** for bulk loading with error handling
-- Connecting Power BI to Snowflake via **DirectQuery** (live warehouse connection)
-- Writing analytical SQL for **profitability analysis** across categories, segments, and geographies
+- AWS IAM doesn't trust anyone by default — had to literally write a custom policy to convince it that Snowflake is a friend, not a threat.
+- `COPY INTO` loaded 9,627 rows, skipped 367, said "PARTIALLY_LOADED" and didn't even apologize. Turns out some product names had weird UTF-8 characters. Fair enough.
+- DirectQuery sounds cool until Power BI wakes up and asks for your Snowflake credentials again. Every. Single. Session.
+- Spent more time setting up the S3 → Snowflake integration than actually analyzing the data. That's just how pipelines work I guess.
+- Snowflake external stages are basically a bouncer at a club — S3 won't let anyone in without the right IAM role and a trust policy as ID.
+- Moving data from S3 to Snowflake to Power BI through IAM roles, storage integrations, and external stages — apparently that's just a Tuesday in data engineering.
 
 ---
-
-## 👤 Author
 
 **Ashutosh Saini**
-Data Analyst | SQL · Python · Power BI · AWS · Snowflake
 
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue?style=flat&logo=linkedin)](https://linkedin.com/in/ashutosh-flow)
 [![GitHub](https://img.shields.io/badge/GitHub-InsightsByAsh-black?style=flat&logo=github)](https://github.com/InsightsByAsh)
